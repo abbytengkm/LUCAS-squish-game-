@@ -151,7 +151,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
 <div class="panelwrap" id="panel" hidden>
   <div class="panel" role="dialog" aria-label="Quests and collection">
     <header class="phead">
-      <div class="tabs"><button id="tabQ" aria-pressed="true">Quests</button><button id="tabC" aria-pressed="false">Collection <span id="ccount"></span></button><button id="tabS" aria-pressed="false">My Shop</button><button id="tabW" aria-pressed="false">Worlds</button><button id="tabA" aria-pressed="false">Avatars</button><button id="tabT" aria-pressed="false" hidden>Secret Style</button></div>
+      <div class="tabs"><button id="tabQ" aria-pressed="true">Quests</button><button id="tabC" aria-pressed="false">Collection <span id="ccount"></span></button><button id="tabS" aria-pressed="false">My Shop</button><button id="tabW" aria-pressed="false">Worlds</button><button id="tabA" aria-pressed="false">Avatars</button><button id="tabT" aria-pressed="false" hidden>Secret Style</button><button id="tabH" aria-pressed="false">My House</button></div>
       <button class="x" id="closeP" aria-label="Close">×</button>
     </header>
     <div class="pbody" id="pbody"></div>
@@ -1755,21 +1755,45 @@ function updateParts(dt){for(let i=parts.length-1;i>=0;i--){const q=parts[i];q.l
 
 
 /* ---------- houses: every player gets one in Peaceful Village ---------- */
+const ROOFS={pointy:'Pointy',flat:'Flat',dome:'Dome',castle:'Castle'};
+const HITEMS={
+  sofa:{name:'Sofa',price:200,where:'Inside'},plant:{name:'Big plant',price:100,where:'Inside'},books:{name:'Bookshelf',price:250,where:'Inside'},tv:{name:'TV',price:300,where:'Inside'},
+  beanbag:{name:'Squishy beanbag',price:400,where:'Inside'},tank:{name:'Fish tank',price:500,where:'Inside'},disco:{name:'Disco ball',price:800,where:'Inside'},
+  arch:{name:'Flower arch',price:300,where:'Garden'},tramp:{name:'Trampoline',price:600,where:'Garden'},fountain:{name:'Fountain',price:700,where:'Garden'},
+  pool:{name:'Swimming pool',price:1200,where:'Back yard'},rainbow:{name:'Rainbow',price:1500,where:'Over the house'}};
+const HCHIP={sofa:'linear-gradient(#ff9ec0,#ff6f9c)',plant:'radial-gradient(#7fe0b0,#3fa83a)',books:'repeating-linear-gradient(90deg,#ff6f9c 0 6px,#4aa8ff 6px 12px,#ffd166 12px 18px)',tv:'linear-gradient(#2a2433,#4a3f66)',
+  beanbag:'radial-gradient(circle at 35% 30%,#fff 0 30%,#ffd0de)',tank:'linear-gradient(#bfe9ff,#4aa8ff)',disco:'radial-gradient(circle at 35% 30%,#fff,#b0b8c8 50%,#6a7080)',arch:'radial-gradient(#ffb0dc,#6bcb77)',
+  tramp:'radial-gradient(#2a2433 0 60%,#4aa8ff 61%)',fountain:'radial-gradient(#cfeeff,#e8e0d0)',pool:'linear-gradient(#8fd3ff,#2bc4c4)',rainbow:'linear-gradient(#ff5f6d,#ffd93d,#6bcb77,#4d96ff,#9b5de5)'};
+let hcfg={w:'',r:'',s:'pointy',f:[]};const hown=new Set();
+const cleanHo=h=>{if(!h||typeof h!=='object')return null;const hx=v=>v===''||(typeof v==='string'&&/^#[0-9a-f]{6}$/i.test(v));if(!hx(h.w)||!hx(h.r)||!ROOFS[h.s]||!Array.isArray(h.f))return null;
+  return {w:h.w,r:h.r,s:h.s,f:h.f.filter(k=>HITEMS[k]).slice(0,16)};};
+try{const s=JSON.parse(localStorage.getItem('sso-house')||'{}')||{};const h=cleanHo(s.cfg);if(h)hcfg=h;(s.own||[]).forEach(k=>{if(HITEMS[k])hown.add(k);});hcfg.f=hcfg.f.filter(k=>hown.has(k));}catch(_){}
+me.ho=hcfg;
+const saveHouse=()=>{try{localStorage.setItem('sso-house',JSON.stringify({cfg:hcfg,own:[...hown]}));}catch(_){}};
+function setHouse(part,val){hcfg=Object.assign({},hcfg,{[part]:val});me.ho=hcfg;saveHouse();refreshHouses();sendPresence(true);audio.tick();renderPanel();}
+function buyItem(k){const it=HITEMS[k];if(!it||hown.has(k))return;if(shop.m<it.price){toast('You need $'+it.price);return;}hown.add(k);addMoney(-it.price);coinSound();toast('New for your house: '+it.name+'!');toggleItem(k,true);}
+function toggleItem(k,on){if(!hown.has(k))return;const f=hcfg.f.filter(x=>x!==k);if(on)f.push(k);setHouse('f',f);}
+const decorIt={type:'decor',pos:V(0,-999,0),r:2.4,label:'Decorate my house'};inter.push(decorIt);
+
 const houses=new Array(8).fill(null);let houseSig='',myPlot=0,lastPeers=null,inVillage=false,musT=0,musI=0;
 function plotInfo(i){const col=i%4,row=i<4?0:1;return {cx:-93+col*12,cz:row?47:29,flip:!!row};}
 function homeSpot(){const {cx,cz,flip}=plotInfo(myPlot);return flip?{p:V(cx,0,cz-6.5),yaw:0,cam:Math.PI}:{p:V(cx,0,cz+6.5),yaw:Math.PI,cam:0};}
-function removeHouse(h){world.remove(h.grp);h.grp.traverse(o=>{if(o.geometry)o.geometry.dispose();});for(const s of h.sol){const i=solids.indexOf(s);if(i>=0)solids.splice(i,1);}}
+function removeHouse(h){world.remove(h.grp);h.grp.traverse(o=>{if(o.geometry)o.geometry.dispose();});for(const s of h.sol){const i=solids.indexOf(s);if(i>=0)solids.splice(i,1);const j=bouncers.indexOf(s);if(j>=0)bouncers.splice(j,1);}}
 function buildHouse(i,e){const {cx,cz,flip}=plotInfo(i);const grp=new THREE.Group();world.add(grp);const sol=[];
   const W=(x,z)=>flip?[cx-x,cz-z]:[cx+x,cz+z];
   const hb=(x0,y0,z0,x1,y1,z1,mat)=>{const a=W(x0,z0),b=W(x1,z1);const s=addBox(Math.min(a[0],b[0]),y0,Math.min(a[1],b[1]),Math.max(a[0],b[0]),y1,Math.max(a[1],b[1]),mat);grp.add(s.mesh);sol.push(s);return s;};
   const deco=(mesh,x,y,z)=>{const q=W(x,z);mesh.position.set(q[0],y,q[1]);if(flip)mesh.rotation.y+=Math.PI;grp.add(mesh);return mesh;};
   if(!e){const s=sign('FREE PLOT',2.4,0.5,'#ffffff','#3a2948');deco(s,0,1.4,4);const pst=new THREE.Mesh(new THREE.BoxGeometry(0.12,1.2,0.12),M('#c99a6a'));deco(pst,0,0.6,3.95);return {grp,sol,key:''};}
-  const base=new THREE.Color(e.c),wallC='#'+base.clone().lerp(new THREE.Color('#ffffff'),0.6).getHexString(),roofC='#'+base.clone().multiplyScalar(0.85).getHexString();
+  const ho=e.ho||{w:'',r:'',s:'pointy',f:[]};const base=new THREE.Color(e.c),wallC=ho.w||'#'+base.clone().lerp(new THREE.Color('#ffffff'),0.6).getHexString(),roofC=ho.r||'#'+base.clone().multiplyScalar(0.85).getHexString();
   const wall=M(wallC,{roughness:.85}),roof=M(roofC,{roughness:.6}),wood=M('#e8c39e',{roughness:.8});
   hb(-3.5,0,-3,3.5,0.1,3,wood);
   hb(-3.5,0,-3,3.5,3.2,-2.8,wall);hb(-3.5,0,-2.8,-3.3,3.2,3,wall);hb(3.3,0,-2.8,3.5,3.2,3,wall);
   hb(-3.5,0,2.8,-0.8,3.2,3,wall);hb(0.8,0,2.8,3.5,3.2,3,wall);hb(-0.8,2.4,2.8,0.8,3.2,3,wall);
-  const rf=new THREE.Mesh(new THREE.ConeGeometry(5.3,2.4,4),roof);rf.rotation.y=Math.PI/4;rf.castShadow=true;deco(rf,0,4.4,0);
+  if(ho.s==='flat'||ho.s==='castle'){const rf=new THREE.Mesh(new THREE.BoxGeometry(7.6,0.35,6.6),roof);rf.castShadow=true;deco(rf,0,3.38,0);
+    if(ho.s==='castle'){for(let k=0;k<7;k++)for(const z of [-3.1,3.1]){const b=new THREE.Mesh(new THREE.BoxGeometry(0.6,0.6,0.4),roof);deco(b,-3.4+k*1.13,3.85,z);}for(let k=1;k<5;k++)for(const x of [-3.6,3.6]){const b=new THREE.Mesh(new THREE.BoxGeometry(0.4,0.6,0.6),roof);deco(b,x,3.85,-3.1+k*1.24);}
+      const fp=new THREE.Mesh(new THREE.CylinderGeometry(0.04,0.04,1.6,6),M('#ffffff'));deco(fp,2.8,4.4,-2.6);const fl=new THREE.Mesh(new THREE.PlaneGeometry(0.8,0.5),new THREE.MeshStandardMaterial({color:lin(e.c),side:THREE.DoubleSide}));deco(fl,3.2,5,-2.6);}}
+  else if(ho.s==='dome'){const rf=new THREE.Mesh(new THREE.SphereGeometry(4.6,32,16,0,Math.PI*2,0,Math.PI/2),roof);rf.scale.y=0.55;rf.castShadow=true;deco(rf,0,3.2,0);}
+  else{const rf=new THREE.Mesh(new THREE.ConeGeometry(5.3,2.4,4),roof);rf.rotation.y=Math.PI/4;rf.castShadow=true;deco(rf,0,4.4,0);}
   const ch=new THREE.Mesh(new THREE.BoxGeometry(0.6,1.2,0.6),M('#c0705a'));deco(ch,1.8,4.7,-1);
   for(const x of [-2.1,2.1]){const wd=new THREE.Mesh(new THREE.PlaneGeometry(1.1,0.9),new THREE.MeshStandardMaterial({color:lin('#cfeeff'),emissive:lin('#fff3d6'),emissiveIntensity:.45}));deco(wd,x,1.7,3.02);
     const fr=new THREE.Mesh(new THREE.BoxGeometry(1.3,0.12,0.12),M('#ffffff'));deco(fr,x,1.2,3.05);}
@@ -1787,15 +1811,39 @@ function buildHouse(i,e){const {cx,cz,flip}=plotInfo(i);const grp=new THREE.Grou
   hb(-1,1.5,-2.8,3.2,1.6,-2.4,wood);
   const shelfIdx=e.me?DEFS.map((d,k)=>k).filter(k=>DEFS[k].rar!=='common'&&isOwned(k)).slice(-4):[0,1,2,3];
   shelfIdx.forEach((k,j)=>{const sq=squishies[k],sc=0.28/sq.R;const m=mini(k,sc);const q=W(-0.5+j*1.05,-2.6);m.position.set(q[0]-sq.centroid.x*sc,1.6,q[1]-sq.centroid.z*sc);if(flip)m.rotation.y=Math.PI;grp.add(m);});
-  return {grp,sol,key:e.n+'|'+e.c+'|'+(e.me?1:0)};}
+
+  const F=new Set(ho.f||[]);
+  if(F.has('sofa')){hb(-3.3,0.1,0.6,-2.5,0.55,2.3,M('#ff9ec0'));const bk=new THREE.Mesh(new THREE.BoxGeometry(0.3,0.6,1.7),M('#ff6f9c'));deco(bk,-3.15,0.85,1.45);}
+  if(F.has('plant')){const pot=new THREE.Mesh(new THREE.CylinderGeometry(0.3,0.22,0.5,14),M('#c0705a'));deco(pot,-2.9,0.35,2.55);const lv=new THREE.Mesh(new THREE.SphereGeometry(0.55,14,10),M('#6bcb77'));lv.scale.y=1.4;deco(lv,-2.9,1.2,2.55);}
+  if(F.has('books')){hb(2.9,0.1,-0.6,3.3,2.1,0.6,M('#c99a6a'));const BC=['#ff6f9c','#4aa8ff','#ffd166','#6bcb77','#9b5de5'];for(let r2=0;r2<3;r2++)for(let k=0;k<5;k++){const bb=new THREE.Mesh(new THREE.BoxGeometry(0.06,0.42,0.18),M(BC[(k+r2)%5]));deco(bb,2.86,0.45+r2*0.6,-0.45+k*0.22);}}
+  if(F.has('tv')){const st=new THREE.Mesh(new THREE.BoxGeometry(0.5,0.6,1.4),M('#4a3f66'));deco(st,3.0,0.4,1.7);const tv=new THREE.Mesh(new THREE.BoxGeometry(0.08,0.85,1.5),M('#1a1622'));deco(tv,3.0,1.15,1.7);
+    const scr=new THREE.Mesh(new THREE.PlaneGeometry(1.35,0.72),new THREE.MeshStandardMaterial({color:lin('#8fd3ff'),emissive:lin('#4aa8ff'),emissiveIntensity:.9}));scr.rotation.y=-Math.PI/2;deco(scr,2.95,1.15,1.7);}
+  if(F.has('beanbag')){const sq=squishies[0],sc=0.55/sq.R;const m=mini(0,sc);const q=W(0.6,0.4);m.position.set(q[0]-sq.centroid.x*sc,0.12,q[1]-sq.centroid.z*sc);if(flip)m.rotation.y=Math.PI;grp.add(m);}
+  if(F.has('tank')){const gl=new THREE.Mesh(new THREE.BoxGeometry(0.6,0.6,0.9),new THREE.MeshPhysicalMaterial({color:lin('#bfe9ff'),transparent:true,opacity:.45,roughness:.05,clearcoat:1}));deco(gl,2.9,0.95,-1.4);
+    for(let k=0;k<3;k++){const fsh=new THREE.Mesh(new THREE.SphereGeometry(0.07,8,6),M(['#ffb020','#ff6f9c','#7fd3ff'][k]));fsh.scale.z=1.6;deco(fsh,2.9,0.85+k*0.12,-1.6+k*0.2);}}
+  if(F.has('disco')){const db=new THREE.Mesh(new THREE.IcosahedronGeometry(0.4,1),new THREE.MeshPhysicalMaterial({color:lin('#e6ecf2'),metalness:1,roughness:.1,flatShading:true}));deco(db,0,2.7,0);
+    const cd=new THREE.Mesh(new THREE.CylinderGeometry(0.02,0.02,0.5,6),M('#8fa0b2'));deco(cd,0,3.0,0);
+    const DC=['#ff6f9c','#7fd3ff','#ffd166','#b69cff'];for(let k=0;k<4;k++){const sp=new THREE.Mesh(new THREE.CircleGeometry(0.35,16),new THREE.MeshBasicMaterial({color:lin(DC[k]),transparent:true,opacity:.55}));sp.rotation.x=-Math.PI/2;deco(sp,[-1.6,1.4,-0.6,1.8][k],0.12,[1.2,-0.4,-1.8,2.2][k]);}}
+  if(F.has('arch')){for(const x of [-1,1]){const pst=new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.08,2.4,8),M('#6bcb77'));deco(pst,x,1.2,7.2);}
+    const ar=new THREE.Mesh(new THREE.TorusGeometry(1,0.12,8,24,Math.PI),M('#6bcb77'));deco(ar,0,2.4,7.2);for(let k=0;k<9;k++){const a=k/8*Math.PI,fl=new THREE.Mesh(new THREE.SphereGeometry(0.13,8,6),M(['#ff6f9c','#ffd166','#ffffff'][k%3]));deco(fl,Math.cos(a),2.4+Math.sin(a),7.25);}}
+  if(F.has('tramp')){const tm=new THREE.Mesh(new THREE.CylinderGeometry(1.2,1.2,0.12,28),M('#2a2433'));const rimT=new THREE.Mesh(new THREE.TorusGeometry(1.25,0.1,8,32),M('#4aa8ff'));rimT.rotation.x=Math.PI/2;
+    const tg=new THREE.Group();tg.add(tm,rimT);deco(tg,-4.2,0.6,5.2);for(let k=0;k<4;k++){const lg=new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,0.6,6),M('#8fa0b2'));const a=k*Math.PI/2;deco(lg,-4.2+Math.cos(a)*1.1,0.3,5.2+Math.sin(a)*1.1);}
+    const q=W(-4.2,5.2);const s=collider(q[0]-1.2,0,q[1]-1.2,q[0]+1.2,0.66,q[1]+1.2,'bounce',{power:18});s.vis=tg;s.sq=0;s.sv=0;bouncers.push(s);sol.push(s);}
+  if(F.has('fountain')){const bs=new THREE.Mesh(new THREE.CylinderGeometry(1,1.1,0.5,24),M('#e8e0d0'));deco(bs,4.3,0.25,4.3);const wt=new THREE.Mesh(new THREE.CylinderGeometry(0.9,0.9,0.06,24),new THREE.MeshPhysicalMaterial({color:lin('#8fd3ff'),roughness:.05,clearcoat:1}));deco(wt,4.3,0.48,4.3);
+    const cl=new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.16,1,10),M('#e8e0d0'));deco(cl,4.3,0.9,4.3);const sp=new THREE.Mesh(new THREE.SphereGeometry(0.3,12,8),new THREE.MeshPhysicalMaterial({color:lin('#cfeeff'),transparent:true,opacity:.6}));deco(sp,4.3,1.5,4.3);
+    const q=W(4.3,4.3);const s=collider(q[0]-1,0,q[1]-1,q[0]+1,0.5,q[1]+1);sol.push(s);}
+  if(F.has('pool')){const pl=new THREE.Mesh(new THREE.BoxGeometry(5,0.12,2.2),new THREE.MeshPhysicalMaterial({color:lin('#4fc3e8'),roughness:.05,clearcoat:1}));deco(pl,0,0.06,-4.3);
+    const ed=new THREE.Mesh(new THREE.BoxGeometry(5.6,0.1,2.8),M('#ffffff'));deco(ed,0,0.03,-4.3);const ring=new THREE.Mesh(new THREE.TorusGeometry(0.3,0.1,8,20),M('#ff6f9c'));ring.rotation.x=Math.PI/2;deco(ring,1.2,0.16,-4.1);}
+  if(F.has('rainbow')){const RB=['#ff5f6d','#ff9f43','#ffd93d','#6bcb77','#4d96ff','#9b5de5'];RB.forEach((cc,k)=>{const t=new THREE.Mesh(new THREE.TorusGeometry(6.2-k*0.35,0.17,8,48,Math.PI),new THREE.MeshStandardMaterial({color:lin(cc),emissive:lin(cc),emissiveIntensity:.4}));deco(t,0,0.2,-1.5);});}
+  return {grp,sol,key:e.n+'|'+e.c+'|'+(e.me?1:0)+'|'+JSON.stringify(ho)};}
 function assignHouses(list){const L=list.slice().sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0).slice(0,8);
-  const sig=L.map(e=>e.id+'|'+e.n+'|'+e.c+'|'+(e.me?1:0)).join(',');if(sig===houseSig)return;houseSig=sig;
-  for(let i=0;i<8;i++){const e=L[i]||null,key=e?(e.n+'|'+e.c+'|'+(e.me?1:0)):'',cur=houses[i];if(cur&&cur.key===key)continue;if(cur)removeHouse(cur);houses[i]=buildHouse(i,e);}
-  const mi=L.findIndex(e=>e.me);myPlot=mi>=0?mi:0;}
+  const sig=L.map(e=>e.id+'|'+e.n+'|'+e.c+'|'+(e.me?1:0)+'|'+JSON.stringify(e.ho||null)).join(',');if(sig===houseSig)return;houseSig=sig;
+  for(let i=0;i<8;i++){const e=L[i]||null,key=e?(e.n+'|'+e.c+'|'+(e.me?1:0)+'|'+JSON.stringify(e.ho||{w:'',r:'',s:'pointy',f:[]})):'',cur=houses[i];if(cur&&cur.key===key)continue;if(cur)removeHouse(cur);houses[i]=buildHouse(i,e);}
+  const mi=L.findIndex(e=>e.me);myPlot=mi>=0?mi:0;decorIt.pos.copy(homeSpot().p);}
 function refreshHouses(){if(!myAv)return;let list;
-  if(lastPeers){list=[];let hasMe=false;for(const pr of lastPeers){if(pr.kind!=='viewer')continue;if(pr.sameTab){if(!hasMe){list.push({id:pr.peer,me:true,n:me.n,c:me.c});hasMe=true;}continue;}const d=cleanP(pr.presence);if(d)list.push({id:pr.peer,n:d.n,c:d.c});}
-    if(!hasMe)list.push({id:'~me',me:true,n:me.n,c:me.c});}
-  else list=[{id:'me',me:true,n:me.n,c:me.c}];
+  if(lastPeers){list=[];let hasMe=false;for(const pr of lastPeers){if(pr.kind!=='viewer')continue;if(pr.sameTab){if(!hasMe){list.push({id:pr.peer,me:true,n:me.n,c:me.c,ho:me.ho});hasMe=true;}continue;}const d=cleanP(pr.presence);if(d)list.push({id:pr.peer,n:d.n,c:d.c,ho:d.ho});}
+    if(!hasMe)list.push({id:'~me',me:true,n:me.n,c:me.c,ho:me.ho});}
+  else list=[{id:'me',me:true,n:me.n,c:me.c,ho:me.ho}];
   assignHouses(list);}
 function goHome(){if(mode!=='world'||!playing)return;const f=$('#flash');f.classList.add('on');
   setTimeout(()=>{resetObby(null);const h=homeSpot();P.pos.copy(h.p);P.vel.set(0,0,0);P.ext.set(0,0,0);P.yaw=h.yaw;P.camYaw=h.cam;camSnap=true;f.classList.remove('on');audio.chime();toast('Welcome home, '+me.n+'!');},400);}
@@ -1867,9 +1915,31 @@ let tab='q';
 function blobEl(i,locked){const b=document.createElement('span');b.className='blob';if(!locked)b.style.background=DEFS[i].chip;else{b.textContent='?';b.classList.add('lk');}return b;}
 function rarEl(r){const s=document.createElement('span');s.className='rar '+r;s.textContent=r;return s;}
 function renderPanel(){
-  const body=$('#pbody');body.textContent='';$('#tabQ').setAttribute('aria-pressed',tab==='q');$('#tabC').setAttribute('aria-pressed',tab==='c');$('#tabS').setAttribute('aria-pressed',tab==='s');$('#tabW').setAttribute('aria-pressed',tab==='w');$('#tabA').setAttribute('aria-pressed',tab==='a');$('#tabT').setAttribute('aria-pressed',tab==='t');$('#tabT').hidden=!inSecret;if(tab==='t'&&!inSecret)tab='a';
+  const body=$('#pbody');body.textContent='';$('#tabQ').setAttribute('aria-pressed',tab==='q');$('#tabC').setAttribute('aria-pressed',tab==='c');$('#tabS').setAttribute('aria-pressed',tab==='s');$('#tabW').setAttribute('aria-pressed',tab==='w');$('#tabA').setAttribute('aria-pressed',tab==='a');$('#tabT').setAttribute('aria-pressed',tab==='t');$('#tabH').setAttribute('aria-pressed',tab==='h');$('#tabT').hidden=!inSecret;if(tab==='t'&&!inSecret)tab='a';
   $('#ccount').textContent=rareCount()+'/'+RARE_TOTAL;
-  if(tab==='t'){
+  if(tab==='h'){
+    const wrap=document.createElement('div');wrap.className='sec';wrap.style.display='grid';wrap.style.gap='10px';
+    const intro=document.createElement('p');intro.className='hintx';intro.style.margin='0 2px';intro.textContent='Your house is in Peaceful Village (use the yellow My House pad). Friends see it exactly how you decorate it. You have $'+shop.m+'.';wrap.append(intro);
+    const colorRow=(label,part)=>{const l=document.createElement('p');l.className='hintx';l.style.margin='2px';l.textContent=label;const ch=document.createElement('div');ch.className='chips';
+      const auto=document.createElement('button');auto.textContent='Match me';auto.setAttribute('aria-pressed',hcfg[part]==='');auto.addEventListener('click',()=>setHouse(part,''));ch.append(auto);
+      for(const col of STYLE_COLS){const b=document.createElement('button');b.className='cs';b.style.background=col;b.setAttribute('aria-label',label+' '+col);b.setAttribute('aria-pressed',hcfg[part]===col);b.addEventListener('click',()=>setHouse(part,col));ch.append(b);}wrap.append(l,ch);};
+    const h1=document.createElement('h3');h1.className='sh';h1.textContent='Colors and roof';wrap.append(h1);
+    colorRow('Wall color','w');colorRow('Roof color','r');
+    { const l=document.createElement('p');l.className='hintx';l.style.margin='2px';l.textContent='Roof style';const ch=document.createElement('div');ch.className='chips';
+      for(const k of Object.keys(ROOFS)){const b=document.createElement('button');b.textContent=ROOFS[k];b.setAttribute('aria-pressed',hcfg.s===k);b.addEventListener('click',()=>setHouse('s',k));ch.append(b);}wrap.append(l,ch);}
+    const h2=document.createElement('h3');h2.className='sh';h2.textContent='Furniture and garden';wrap.append(h2);
+    const grid=document.createElement('div');grid.className='grid';
+    for(const k of Object.keys(HITEMS)){const it=HITEMS[k],own=hown.has(k),on=hcfg.f.includes(k);const card=document.createElement('div');card.className='ccard skin'+(on?' wearing':'');
+      const sw=document.createElement('span');sw.className='sw';sw.style.background=HCHIP[k];const h=document.createElement('h4');h.textContent=it.name;const wh=document.createElement('p');wh.textContent=it.where;
+      const b=document.createElement('button');b.className='buy';
+      if(!own){b.textContent='Buy $'+it.price;b.disabled=shop.m<it.price;b.addEventListener('click',()=>buyItem(k));}
+      else if(on){b.textContent='Put away';b.style.background='#efe6f5';b.addEventListener('click',()=>toggleItem(k,false));}
+      else{b.textContent='Place it';b.addEventListener('click',()=>toggleItem(k,true));}
+      card.append(sw,h,wh,b);grid.append(card);}
+    wrap.append(grid);
+    const gh=document.createElement('button');gh.className='buy';gh.style.justifySelf='start';gh.textContent='Go to my house';gh.addEventListener('click',()=>{closePanel();goHome();});wrap.append(gh);
+    body.append(wrap);
+  }else if(tab==='t'){
     const wrap=document.createElement('div');wrap.className='sec';wrap.style.display='grid';wrap.style.gap='10px';
     const intro=document.createElement('p');intro.className='hintx';intro.style.margin='0 2px';intro.textContent='Only the Secret Wardrobe can make these. Build your own avatar for free, and buy trails that follow you everywhere. Other players see both.';wrap.append(intro);
     const h1=document.createElement('h3');h1.className='sh';h1.textContent='Custom avatar';wrap.append(h1);
@@ -1968,6 +2038,7 @@ $('#tabS').addEventListener('click',()=>{tab='s';renderPanel();});
 $('#tabW').addEventListener('click',()=>{tab='w';renderPanel();});
 $('#tabA').addEventListener('click',()=>{tab='a';renderPanel();});
 $('#tabT').addEventListener('click',()=>{tab='t';renderPanel();});
+$('#tabH').addEventListener('click',()=>{tab='h';renderPanel();});
 $('#closeP').addEventListener('click',closePanel);
 $('#panel').addEventListener('click',e=>{if(e.target.id==='panel')closePanel();});
 function spawnHidden(){
@@ -1999,6 +2070,7 @@ function doInteract(){
   else if(near.type==='avatars')openPanel('a');
   else if(near.type==='wardrobe')openPanel('t');
   else if(near.type==='home')goHome();
+  else if(near.type==='decor')openPanel('h');
   else if(near.type==='secretDoor'){if(secretUnlocked())goSecret();else{toast('This door is locked…');toast('Find the 3 hidden squishies to open it');}}
   else if(near.type==='leaveSecret')leaveSecret();
   else if(near.type==='leaveGen')leaveGen();
@@ -2015,7 +2087,7 @@ let room=null;const others=new Map();
 function cleanP(p){
   if(!p||typeof p!=='object')return null;const pos=Array.isArray(p.p)&&p.p.length===3&&p.p.every(n=>typeof n==='number'&&isFinite(n))?p.p.map(n=>Math.max(-500,Math.min(500,n))):null;if(!pos)return null;
   return {n:(typeof p.n==='string'?p.n:'').slice(0,14)||'Player',c:typeof p.c==='string'&&/^#[0-9a-f]{6}$/i.test(p.c)?p.c:'#999999',p:pos,r:typeof p.r==='number'&&isFinite(p.r)?p.r:0,
-    h:Number.isInteger(p.h)&&p.h>=-1&&p.h<DEFS.length?p.h:-1,s:p.s===true,cp:Number.isInteger(p.cp)?Math.max(0,Math.min(9,p.cp)):0,ob:(p.ob==='slime'||OBIDS.includes(p.ob))?p.ob:'',b:typeof p.b==='number'&&isFinite(p.b)&&p.b>0?p.b:null,q:Number.isInteger(p.q)?Math.max(0,p.q):0,a:p.a===true,f:p.f===true,g:p.g===true,k:typeof p.k==='string'&&SKINS[p.k]?p.k:'classic',t:typeof p.t==='string'&&TRAILS[p.t]?p.t:'none',cu:cleanCu(p.cu),rc:Number.isInteger(p.rc)?Math.max(0,Math.min(99,p.rc)):0,m:Number.isInteger(p.m)?Math.max(0,Math.min(1e9,p.m)):null,w:p.w==='dream'||p.w==='secret'?p.w:(typeof p.w==='string'&&/^w\d{1,22}$/.test(p.w)?p.w:'')};
+    h:Number.isInteger(p.h)&&p.h>=-1&&p.h<DEFS.length?p.h:-1,s:p.s===true,cp:Number.isInteger(p.cp)?Math.max(0,Math.min(9,p.cp)):0,ob:(p.ob==='slime'||OBIDS.includes(p.ob))?p.ob:'',b:typeof p.b==='number'&&isFinite(p.b)&&p.b>0?p.b:null,q:Number.isInteger(p.q)?Math.max(0,p.q):0,a:p.a===true,f:p.f===true,g:p.g===true,k:typeof p.k==='string'&&SKINS[p.k]?p.k:'classic',t:typeof p.t==='string'&&TRAILS[p.t]?p.t:'none',cu:cleanCu(p.cu),ho:cleanHo(p.ho),rc:Number.isInteger(p.rc)?Math.max(0,Math.min(99,p.rc)):0,m:Number.isInteger(p.m)?Math.max(0,Math.min(1e9,p.m)):null,w:p.w==='dream'||p.w==='secret'?p.w:(typeof p.w==='string'&&/^w\d{1,22}$/.test(p.w)?p.w:'')};
 }
 function onPeers(ch){
   const seen=new Set();
@@ -2045,7 +2117,7 @@ let lastSent='',sendT=0;
 function sendPresence(force){
   if(!room||!playing)return;const now=performance.now();if(!force&&now-sendT<70)return;
   const r2=n=>Math.round(n*100)/100;
-  const data={n:me.n,c:me.c,p:[r2(P.pos.x),r2(P.pos.y),r2(P.pos.z)],r:r2(P.yaw),h:me.h,s:me.s,cp:me.cp,b:me.b,q:me.q,a:!P.onGround,f:!!P.fly,g:gold,rc:rareCount(),ob:obby.id||'',m:shop.m,w:me.w,k:me.k,t:me.t,cu:me.k==='custom'?me.cu:null};
+  const data={n:me.n,c:me.c,p:[r2(P.pos.x),r2(P.pos.y),r2(P.pos.z)],r:r2(P.yaw),h:me.h,s:me.s,cp:me.cp,b:me.b,q:me.q,a:!P.onGround,f:!!P.fly,g:gold,rc:rareCount(),ob:obby.id||'',m:shop.m,w:me.w,k:me.k,t:me.t,cu:me.k==='custom'?me.cu:null,ho:me.ho};
   const j=JSON.stringify(data);if(j===lastSent)return;lastSent=j;sendT=now;room.presence(data).catch(()=>{});
 }
 
