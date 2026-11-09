@@ -2127,30 +2127,32 @@ function sendPresence(force){
   const j=JSON.stringify(data);if(j===lastSent)return;lastSent=j;sendT=now;room.presence(data).catch(()=>{});
 }
 
-/* ---------- multiplayer outside Claude: a free public MQTT server ---------- */
-const MQ_URL=window.SSO_MQTT_URL||'wss://broker.hivemq.com:8884/mqtt',MQ_TOPIC='squishshopobby/v1/p/';
+/* ---------- multiplayer outside Claude: free public MQTT servers (two at once, so one being down is fine) ---------- */
+const MQ_URLS=window.SSO_MQTT_URLS||['wss://broker.emqx.io:8084/mqtt','wss://broker.hivemq.com:8884/mqtt'],MQ_TOPIC='squishshopobby/v2/p/';
+let mqStatus='';
 function mqttRoom(){return new Promise(res=>{
-  if(!window.mqtt){res(null);return;}
+  if(!window.mqtt){mqStatus='The multiplayer code did not load.';res(null);return;}
   let done=false;const finish=v=>{if(!done){done=true;res(v);}};
   const id=Math.random().toString(36).slice(2,12);
-  let cli;try{cli=window.mqtt.connect(MQ_URL,{clientId:'sso_'+id,clean:true,connectTimeout:8000,reconnectPeriod:5000,keepalive:30,will:{topic:MQ_TOPIC+id,payload:'',qos:0,retain:false}});}catch(_){finish(null);return;}
-  const peers=new Map();let cb=null,mine=null,dirty=false,lastSent=0;
+  const peers=new Map();let cb=null,mine=null,dirty=false,lastSent=0;const clis=[];
   const emit=()=>{dirty=false;if(!cb)return;const list=[{peer:id,sameTab:true,kind:'viewer',presence:mine}];
     const arr=[...peers.entries()].sort((a,b)=>b[1].t-a[1].t).slice(0,24);for(const [k,v] of arr)list.push({peer:k,kind:'viewer',presence:v.d});try{cb({peers:list});}catch(e){console.error(e);}};
-  const pub=()=>{if(mine&&cli.connected){cli.publish(MQ_TOPIC+id,JSON.stringify(mine),{qos:0});lastSent=Date.now();}};
-  cli.on('connect',()=>{cli.subscribe(MQ_TOPIC+'+',{qos:0});pub();finish(api);});
-  cli.on('message',(t,msg)=>{const k=t.slice(MQ_TOPIC.length);if(k===id||k.length>16)return;
+  const pub=()=>{if(!mine)return;const s=JSON.stringify(mine);for(const cl of clis)if(cl.connected)cl.publish(MQ_TOPIC+id,s,{qos:0});lastSent=Date.now();};
+  const onMsg=(t,msg)=>{const k=t.slice(MQ_TOPIC.length);if(k===id||k.length>16)return;
     if(!msg||!msg.length){if(peers.delete(k))dirty=true;return;}
-    if(msg.length>1500)return;try{const d=JSON.parse(msg.toString());if(d&&typeof d==='object'){peers.set(k,{d,t:Date.now()});dirty=true;}}catch(_){}});
+    if(msg.length>2000)return;try{const d=JSON.parse(msg.toString());if(d&&typeof d==='object'){peers.set(k,{d,t:Date.now()});dirty=true;}}catch(_){}};
+  for(const url of MQ_URLS){let cl;try{cl=window.mqtt.connect(url,{clientId:'sso_'+id+'_'+clis.length,clean:true,connectTimeout:10000,reconnectPeriod:5000,keepalive:30,protocolVersion:4,
+      will:{topic:MQ_TOPIC+id,payload:'',qos:0,retain:false}});}catch(e){console.warn('mqtt',url,e);continue;}
+    clis.push(cl);cl.on('connect',()=>{cl.subscribe(MQ_TOPIC+'+',{qos:0});pub();mqStatus='';finish(api);});cl.on('message',onMsg);cl.on('error',e=>console.warn('mqtt',url,e&&e.message));}
   setInterval(()=>{if(dirty)emit();},100);
   setInterval(()=>{const now=Date.now();for(const [k,v] of peers)if(now-v.t>7000){peers.delete(k);dirty=true;}if(now-lastSent>2000)pub();},1000);
-  window.addEventListener('pagehide',()=>{try{cli.publish(MQ_TOPIC+id,'',{qos:0});cli.end(true);}catch(_){}});
-  const api={presence(d){mine=d;pub();return Promise.resolve();},onPeers(f){cb=f;emit();}};
-  setTimeout(()=>finish(null),10000);});}
+  window.addEventListener('pagehide',()=>{for(const cl of clis){try{cl.publish(MQ_TOPIC+id,'',{qos:0});cl.end(true);}catch(_){}}});
+  const api={presence(d){mine=d;pub();return Promise.resolve();},onPeers(f){cb=f;emit();},online:()=>clis.filter(x=>x.connected).length};
+  setTimeout(()=>{if(!done)mqStatus='Could not reach the game servers (your network may block them).';finish(null);},15000);});}
 (function connect(){
   const cl=window.claude;if(!cl||typeof cl.use!=='function'){
     $('#netStatus').textContent='Connecting to players around the world…';
-    mqttRoom().then(r=>{if(!r){$('#netStatus').textContent='Could not reach the game server. You can still play solo.';renderList();return;}
+    mqttRoom().then(r=>{if(!r){$('#netStatus').textContent=(mqStatus||'Could not reach the game server.')+' You can still play solo.';toast('Multiplayer is offline');renderList();return;}
       room=r;$('#netStatus').textContent='Online! Everyone playing this game right now will appear.';r.onPeers(onPeers,()=>{room=null;renderList();});renderList();});
     return;}
   cl.use('room').then(r=>{
